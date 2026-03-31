@@ -56,7 +56,7 @@ Everything else — run command, metric name, regex pattern, direction — is **
 
 ## Example: minimize lines of code
 
-The `examples/minimize_lines/` directory contains a deliberately verbose Python function (~175 lines) that processes sales data. The goal: make it as short as possible while keeping all functionality and readability.
+The `examples/minimize_lines/` directory contains a deliberately verbose Python function (213 lines) that processes sales data. The goal: make it as short as possible while keeping all functionality and readability.
 
 ```bash
 cd examples/minimize_lines
@@ -68,11 +68,107 @@ gra
 # Strategy: Retain all functionality but minimize line count. Don't remove comments. Keep it human readable.
 ```
 
-GRA will:
-1. Auto-detect that `evaluate.py` runs the tests and reports `line_count`
-2. Use Claude Code to iteratively condense the function
-3. Keep each change only if tests pass AND line count decreases
-4. Generate a `progress.png` graph at the end
+GRA auto-detects that `evaluate.py` runs the tests and reports `line_count`, then iteratively condenses the function.
+
+### Results: 213 lines → 42 lines in 10 minutes
+
+19 experiments, 18 kept, 1 discarded, 0 crashes.
+
+![GRA optimization progress](examples/minimize_lines/progress.png)
+
+<details>
+<summary>Before (213 lines)</summary>
+
+```python
+def process_sales_data(raw_data):
+    # Validate that we received data
+    if raw_data is None:
+        raise ValueError("raw_data cannot be None")
+
+    # Initialize the total revenue accumulator
+    total_revenue = 0
+
+    # Initialize a list to store individual order values
+    order_values = []
+
+    # Initialize a dictionary to store revenue by region
+    revenue_by_region = {}
+
+    # Initialize a dictionary to store order count by region
+    orders_by_region = {}
+
+    # Iterate through each record in the raw data
+    for record in raw_data:
+        # Extract the product name from the current record
+        product_name = record["product"]
+
+        # Extract the quantity from the current record
+        quantity = record["quantity"]
+
+        # Calculate the order value by multiplying quantity and price
+        order_value = quantity * price
+
+        # Check if the region already exists in the revenue dictionary
+        if region in revenue_by_region:
+            # If it exists, add the order value to the existing total
+            revenue_by_region[region] = revenue_by_region[region] + order_value
+        else:
+            # If it doesn't exist, initialize with the current order value
+            revenue_by_region[region] = order_value
+
+        # ... (continues for 213 lines)
+```
+
+</details>
+
+<details>
+<summary>After (42 lines) — all tests still pass</summary>
+
+```python
+def process_sales_data(raw_data):
+    """Process raw sales data and return a summary report."""
+    if raw_data is None:
+        raise ValueError("raw_data cannot be None")
+    if len(raw_data) == 0:
+        return {"total_revenue": 0, "total_orders": 0, "average_order_value": 0,
+                "regions": {}, "top_products": [], "statistics": {}}
+
+    # Initialize accumulators and tracking dictionaries
+    total_revenue, order_values = 0, []
+    revenue_by_region, orders_by_region = {}, {}
+    revenue_by_product, quantity_by_product = {}, {}
+
+    # Process each record
+    for record in raw_data:
+        order_value = record["quantity"] * record["price"]
+        total_revenue += order_value
+        order_values.append(order_value)
+        revenue_by_region[record["region"]] = revenue_by_region.get(record["region"], 0) + order_value
+        orders_by_region[record["region"]] = orders_by_region.get(record["region"], 0) + 1
+        revenue_by_product[record["product"]] = revenue_by_product.get(record["product"], 0) + order_value
+        quantity_by_product[record["product"]] = quantity_by_product.get(record["product"], 0) + record["quantity"]
+
+    total_orders = len(raw_data)
+    average_order_value = total_revenue / total_orders
+
+    # Build regional breakdown and top products inline in return
+    return {
+        "total_revenue": round(total_revenue, 2),
+        "total_orders": total_orders,
+        "average_order_value": round(average_order_value, 2),
+        "regions": {r: {"revenue": revenue_by_region[r], "orders": orders_by_region[r],
+                        "average_order_value": round(revenue_by_region[r] / orders_by_region[r], 2),
+                        "percentage_of_total": round((revenue_by_region[r] / total_revenue) * 100, 2)}
+                   for r in revenue_by_region},
+        "top_products": [{"product": n, "revenue": revenue_by_product[n], "quantity": quantity_by_product[n]}
+                        for n in sorted(revenue_by_product, key=revenue_by_product.get, reverse=True)[:5]],
+        "statistics": dict(zip(["min", "max", "median", "std_dev"],
+                              [round(f(order_values), 2) if (f != statistics.stdev or len(order_values) > 1) else 0
+                               for f in [min, max, statistics.median, statistics.stdev]]))
+    }
+```
+
+</details>
 
 ## Resume from config
 
