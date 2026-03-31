@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "general-research-automation"
 version = "0.1.0"
-description = "Autonomous code optimization using LLMs. Inspired by Karpathy's autoresearch, generalized to optimize any metric by running any code."
+description = "General AutoResearch — autonomous code optimization using LLMs. Optimize any metric on any codebase."
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"

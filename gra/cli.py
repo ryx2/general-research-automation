@@ -1,4 +1,4 @@
-"""Interactive CLI for General Research Automation."""
+"""Interactive CLI for General AutoResearch."""
 
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ BANNER = r"""
  | |_| |  _ <  / ___ \
   \____|_| \_\/_/   \_\
 
- General Research Automation
+ General AutoResearch
  Autonomous code optimization via LLMs
 """
 

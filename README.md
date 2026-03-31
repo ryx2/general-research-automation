@@ -1,4 +1,4 @@
-# General Research Automation (GRA)
+# General AutoResearch (GRA)
 
 Autonomous code optimization using LLMs. Point it at any file or folder, and it iteratively improves any metric — line count, accuracy, speed, test scores — using [Claude Code](https://docs.anthropic.com/en/docs/claude-code) under the hood.
 
@@ -28,8 +28,8 @@ pip install general-research-automation
 Or from source:
 
 ```bash
-git clone https://github.com/ryx2/general-research-automation.git
-cd general-research-automation
+git clone https://github.com/ryx2/general-autoresearch.git
+cd general-autoresearch
 pip install -e .
 ```
 
