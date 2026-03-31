@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import subprocess
 import time
 from pathlib import Path
 
@@ -10,7 +11,7 @@ from rich.panel import Panel
 from rich.table import Table
 
 from .config import Config
-from .evaluator import Evaluator, RunResult
+from .evaluator import Evaluator
 from .proposer import Proposer
 from .tracker import ExperimentResult, Tracker
 
@@ -32,13 +33,6 @@ def run_loop(config: Config, work_dir: Path) -> None:
     tracker = Tracker(work_dir, results_file, branch_name)
     evaluator = Evaluator(config.run_command, config.metric_pattern, work_dir, config.run_timeout)
     proposer = Proposer(config.model)
-
-    target_path = work_dir / config.target_file
-    readonly_contents: dict[str, str] = {}
-    for rf in config.readonly_files:
-        p = work_dir / rf
-        if p.exists():
-            readonly_contents[rf] = p.read_text()
 
     # --- Baseline run ---
     console.print(Panel("[bold]Running baseline...[/bold]", style="blue"))
@@ -79,38 +73,46 @@ def run_loop(config: Config, work_dir: Path) -> None:
         experiment_num += 1
         console.rule(f"[bold]Experiment {experiment_num}[/bold] ({elapsed/60:.0f}m elapsed, {remaining/60:.0f}m remaining)")
 
-        # Read current state
-        target_code = target_path.read_text()
         history = tracker.get_history()
         git_log = tracker.get_git_log()
         parent_commit = tracker.get_current_commit()
 
-        # Ask LLM for a proposal
-        console.print("[cyan]Asking LLM for a proposal...[/cyan]")
+        # Ask Claude Code to propose AND apply changes directly
+        console.print("[cyan]Asking Claude Code for a proposal...[/cyan]")
         try:
-            description, new_code = proposer.propose(
-                target_code=target_code,
-                target_file=config.target_file,
+            description = proposer.propose(
+                target=config.target,
                 metric_name=config.metric_name,
                 direction=config.direction,
                 history=history,
                 git_log=git_log,
                 strategy=config.strategy,
-                readonly_contents=readonly_contents,
+                work_dir=work_dir,
+                readonly_files=config.readonly_files or None,
             )
         except Exception as e:
-            console.print(f"[red]LLM error: {e}[/red]")
+            console.print(f"[red]Proposal error: {e}[/red]")
             time.sleep(5)
             continue
 
         console.print(f"[yellow]Proposal:[/yellow] {description}")
 
-        # Apply change
-        target_path.write_text(new_code)
+        # Check if Claude Code actually changed anything
+        diff = subprocess.run(
+            ["git", "diff", "--stat"], cwd=work_dir, capture_output=True, text=True
+        )
+        untracked = subprocess.run(
+            ["git", "ls-files", "--others", "--exclude-standard"],
+            cwd=work_dir, capture_output=True, text=True,
+        )
+        if not diff.stdout.strip() and not untracked.stdout.strip():
+            console.print("[dim]No actual code change — skipping[/dim]")
+            continue
+
+        # Commit the changes Claude Code made
         try:
             commit_hash = tracker.commit_change(f"gra: {description}")
         except RuntimeError:
-            # Nothing changed
             console.print("[dim]No actual code change — skipping[/dim]")
             continue
 
@@ -120,24 +122,27 @@ def run_loop(config: Config, work_dir: Path) -> None:
 
         # Handle crash with retry
         if result.crashed:
-            console.print(f"[red]CRASH[/red] — attempting fix...")
+            console.print("[red]CRASH[/red] — attempting fix...")
             fixed = False
             for fix_attempt in range(config.max_fix_attempts):
                 try:
-                    crash_code = target_path.read_text()
-                    fix_desc, fix_code = proposer.propose(
-                        target_code=crash_code,
-                        target_file=config.target_file,
+                    fix_desc = proposer.propose(
+                        target=config.target,
                         metric_name=config.metric_name,
                         direction=config.direction,
                         history=history,
                         git_log=git_log,
                         strategy=config.strategy,
-                        readonly_contents=readonly_contents,
+                        work_dir=work_dir,
+                        readonly_files=config.readonly_files or None,
                         crash_context=result.tail,
                     )
-                    target_path.write_text(fix_code)
-                    tracker.commit_change(f"gra: fix attempt {fix_attempt + 1}: {fix_desc}")
+                    fix_diff = subprocess.run(
+                        ["git", "diff", "--stat"], cwd=work_dir,
+                        capture_output=True, text=True,
+                    )
+                    if fix_diff.stdout.strip():
+                        tracker.commit_change(f"gra: fix attempt {fix_attempt + 1}: {fix_desc}")
                     result = evaluator.run(log_file)
                     if not result.crashed and result.metric_value is not None:
                         fixed = True
@@ -198,6 +203,14 @@ def run_loop(config: Config, work_dir: Path) -> None:
         _print_status(experiment_num, kept, discarded, crashes, best_metric, config)
 
     # --- Done ---
+    graph_msg = ""
+    try:
+        from .graph import generate_graph
+        graph_path = generate_graph(results_file, metric_name=config.metric_name)
+        graph_msg = f"\nGraph: {graph_path}"
+    except Exception:
+        pass
+
     console.print()
     console.print(Panel(
         f"[bold green]Optimization complete![/bold green]\n\n"
@@ -205,7 +218,7 @@ def run_loop(config: Config, work_dir: Path) -> None:
         f"Kept: {kept} | Discarded: {discarded} | Crashes: {crashes}\n"
         f"Best {config.metric_name}: {best_metric:.6f}\n"
         f"Branch: {branch_name}\n"
-        f"Results: {results_file}",
+        f"Results: {results_file}{graph_msg}",
         title="GRA Summary",
         style="green",
     ))

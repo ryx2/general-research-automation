@@ -1,0 +1,12 @@
+{
+  "target": "verbose_function.py",
+  "run_timeout": 30,
+  "total_timeout": 600,
+  "run_command": "python3 evaluate.py",
+  "metric_name": "line_count",
+  "metric_pattern": "line_count:\\s+(\\d+)",
+  "direction": "minimize",
+  "strategy": "Retain all functionality of this very long function but have it be the minimum number of lines. Don't remove comments and keep it human readable.",
+  "model": "claude-sonnet-4-20250514",
+  "max_fix_attempts": 3
+}

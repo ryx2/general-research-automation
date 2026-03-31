@@ -10,6 +10,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.prompt import Confirm, Prompt
 
+from .auto_config import auto_configure
 from .config import Config
 from .loop import run_loop
 
@@ -28,12 +29,12 @@ BANNER = r"""
 
 
 def interactive_setup() -> tuple[Config, Path]:
-    """Walk the user through configuring an optimization run."""
+    """Walk the user through configuring an optimization run — just 4 questions."""
     console.print(Panel(BANNER, style="bold cyan"))
 
-    # Target directory
+    # 1. Working directory
     work_dir_str = Prompt.ask(
-        "[bold]Working directory[/bold] (the git repo with your code)",
+        "[bold]Working directory[/bold] (git repo with your code)",
         default=".",
     )
     work_dir = Path(work_dir_str).resolve()
@@ -41,93 +42,62 @@ def interactive_setup() -> tuple[Config, Path]:
         console.print(f"[red]Directory not found: {work_dir}[/red]")
         sys.exit(1)
     if not (work_dir / ".git").is_dir():
-        console.print(f"[yellow]Warning: {work_dir} is not a git repo. Initializing one.[/yellow]")
+        console.print("[yellow]Not a git repo — initializing one.[/yellow]")
         import subprocess
         subprocess.run(["git", "init"], cwd=work_dir, check=True)
 
-    # Target file
-    target_file = Prompt.ask(
-        "[bold]Target file[/bold] (the file the LLM will modify, relative to working dir)",
+    # 2. Target file or folder
+    target = Prompt.ask(
+        "[bold]Target[/bold] (file or folder the AI will optimize)",
     )
-    if not (work_dir / target_file).exists():
-        console.print(f"[red]File not found: {work_dir / target_file}[/red]")
+    target_path = work_dir / target
+    if not target_path.exists():
+        console.print(f"[red]Not found: {target_path}[/red]")
         sys.exit(1)
 
-    # Run command
-    run_command = Prompt.ask(
-        "[bold]Run command[/bold] (shell command to execute your code)",
-        default=f"python {target_file}",
-    )
-
-    # Metric
-    metric_name = Prompt.ask(
-        "[bold]Metric name[/bold] (what are you optimizing?)",
-        default="score",
-    )
-
-    console.print(
-        "[dim]The metric pattern is a regex applied to stdout. Use a capture group for the number.[/dim]\n"
-        "[dim]Example: if your code prints 'val_loss: 0.342', use 'val_loss:\\s*([\\d.]+)'[/dim]"
-    )
-    default_pattern = metric_name + r"[:\s]+([\\d.eE+-]+)"
-    metric_pattern = Prompt.ask(
-        "[bold]Metric regex pattern[/bold] (must have one capture group for the number)",
-        default=default_pattern,
-    )
-
-    direction = Prompt.ask(
-        "[bold]Direction[/bold]",
-        choices=["minimize", "maximize"],
-        default="minimize",
-    )
-
-    # Time budgets
+    # 3. Per-run timeout
     run_timeout_str = Prompt.ask(
-        "[bold]Time limit per run[/bold] (e.g. '5m', '300s', '1h')",
+        "[bold]Per-run timeout[/bold] (e.g. '5m', '300s', '1h')",
         default="5m",
     )
     run_timeout = _parse_duration(run_timeout_str)
 
+    # 4. Total timeout
     total_timeout_str = Prompt.ask(
         "[bold]Total optimization time[/bold] (e.g. '2h', '8h', '30m')",
         default="2h",
     )
     total_timeout = _parse_duration(total_timeout_str)
 
-    # Strategy
+    # 5. Strategy (optional)
     console.print(
-        "\n[dim]Strategy notes are free-form guidance for the LLM — constraints, ideas to try,[/dim]\n"
-        "[dim]things to avoid, domain knowledge. Like Karpathy's program.md. Press enter to skip.[/dim]"
+        "\n[dim]Strategy notes: constraints, goals, things to try/avoid. Press enter to skip.[/dim]"
     )
-    strategy = Prompt.ask("[bold]Strategy notes[/bold]", default="")
+    strategy = Prompt.ask("[bold]Strategy notes[/bold] (optional)", default="")
 
-    # Read-only files
-    readonly_str = Prompt.ask(
-        "[bold]Read-only reference files[/bold] (comma-separated, LLM can read but not modify)",
-        default="",
-    )
-    readonly_files = [f.strip() for f in readonly_str.split(",") if f.strip()]
+    # Auto-detect run command, metric, pattern, direction
+    console.print("\n[cyan]Analyzing code to auto-configure...[/cyan]")
+    try:
+        auto = auto_configure(target, work_dir, strategy)
+    except Exception as e:
+        console.print(f"[red]Auto-configuration failed: {e}[/red]")
+        sys.exit(1)
 
-    # Model
-    model = Prompt.ask(
-        "[bold]LLM model[/bold]",
-        default="claude-sonnet-4-20250514",
-    )
+    console.print(f"  Run command: [bold]{auto['run_command']}[/bold]")
+    console.print(f"  Metric: [bold]{auto['metric_name']}[/bold] ({auto['direction']})")
+    console.print(f"  Pattern: [bold]{auto['metric_pattern']}[/bold]")
 
     config = Config(
-        target_file=target_file,
-        run_command=run_command,
-        metric_name=metric_name,
-        metric_pattern=metric_pattern,
-        direction=direction,
+        target=target,
         run_timeout=run_timeout,
         total_timeout=total_timeout,
+        run_command=auto["run_command"],
+        metric_name=auto["metric_name"],
+        metric_pattern=auto["metric_pattern"],
+        direction=auto["direction"],
         strategy=strategy,
-        readonly_files=readonly_files,
-        model=model,
     )
 
-    # Save config
     config_path = work_dir / "gra_config.json"
     config.save(config_path)
     console.print(f"\n[green]Config saved to {config_path}[/green]")
@@ -149,19 +119,19 @@ def _parse_duration(s: str) -> int:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="General Research Automation — autonomous code optimization via LLMs",
+        description="GRA — autonomous code optimization via LLMs",
     )
-    parser.add_argument(
-        "--config",
-        type=Path,
-        help="Path to gra_config.json to resume a previous session (skips interactive setup)",
-    )
-    parser.add_argument(
-        "--work-dir",
-        type=Path,
-        help="Working directory (used with --config)",
-    )
+    parser.add_argument("--config", type=Path, help="Resume from gra_config.json")
+    parser.add_argument("--work-dir", type=Path, help="Working directory (with --config)")
+    parser.add_argument("--graph", type=Path, help="Generate graph from results.tsv")
+    parser.add_argument("-y", "--yes", action="store_true", help="Skip confirmation prompt")
     args = parser.parse_args()
+
+    if args.graph:
+        from .graph import generate_graph
+        out = generate_graph(args.graph)
+        console.print(f"[green]Graph saved to {out}[/green]")
+        return
 
     if args.config:
         config = Config.load(args.config)
@@ -174,7 +144,7 @@ def main() -> None:
     # Confirm and go
     console.print()
     console.print(Panel(
-        f"Target: [bold]{config.target_file}[/bold]\n"
+        f"Target: [bold]{config.target}[/bold]\n"
         f"Command: [bold]{config.run_command}[/bold]\n"
         f"Metric: [bold]{config.metric_name}[/bold] ({config.direction})\n"
         f"Pattern: [bold]{config.metric_pattern}[/bold]\n"
@@ -185,7 +155,7 @@ def main() -> None:
         style="cyan",
     ))
 
-    if not Confirm.ask("\n[bold]Start optimization?[/bold]", default=True):
+    if not args.yes and not Confirm.ask("\n[bold]Start optimization?[/bold]", default=True):
         console.print("[dim]Aborted.[/dim]")
         sys.exit(0)
 

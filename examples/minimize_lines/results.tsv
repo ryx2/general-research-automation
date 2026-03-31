@@ -1,0 +1,20 @@
+timestamp	commit	metric	status	duration_s	description
+1774947135	ab0817a	213.000000	baseline	0.0	initial baseline run
+1774947165	2e97ce7	193.000000	kept	0.0	modification
+1774947192	2677cf7	180.000000	kept	0.0	modification
+1774947227	6b8471f	163.000000	kept	0.0	modification
+1774947253	ee41a7f	160.000000	kept	0.0	modification
+1774947276	9d313f2	140.000000	kept	0.0	modification
+1774947301	a025acb	116.000000	kept	0.0	modification
+1774947348	0a12c23	92.000000	kept	0.0	modification
+1774947382	a3d8175	85.000000	kept	0.0	modification
+1774947405	c21c2f0	82.000000	kept	0.0	modification
+1774947438	b7f520a	78.000000	kept	0.0	modification
+1774947467	f36be8d	75.000000	kept	0.0	modification
+1774947490	0423615	68.000000	kept	0.0	modification
+1774947519	94e3cb2	60.000000	kept	0.0	modification
+1774947540	201e312	58.000000	kept	0.0	modification
+1774947566	7295d03	57.000000	kept	0.0	modification
+1774947639	a4ad3ef	49.000000	discarded	0.0	modification
+1774947675	5244c51	48.000000	kept	0.0	modification
+1774947795	b6f5c42	42.000000	kept	0.0	modification
